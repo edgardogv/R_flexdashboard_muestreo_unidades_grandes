@@ -1,0 +1,1112 @@
+---
+title: "EFECTO DE LAS UNIDADES MUY GRANDES EN EL MUESTREO"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(shiny)
+library(shinyWidgets)
+library(shinydashboard)
+library(DT)
+library(plotly)
+library(sampling)
+library(survey)
+library(samplingbook)
+```
+
+Introducción
+=======================================================================
+
+Row {data-height=400}
+----------------------------------------------------------
+ 
+### Unidades de Muy Gran Tamaño
+
+- “Los elementos muy grandes, aunque sean raros, tendrán efectos importantes en los resultados de muestras aun moderadamente grandes”. (Kish, 1979)
+
+- El investigador puede aislar estos elementos, si son pocos casos.  
+
+- Algunos de estos efectos se dan en las medias muestrales, pues la asimetría de la población se ve reflejada en estas, otros estadísticos afectados son la desviación estándar del promedio y el error estándar, ambos suelen ser más altos ante distribuciones asimétricas, por otro lado, se incrementa la probabilidad del error en los intervalos de confianza.
+
+- La estratificación genera considerables ganancias en precisión cuando se cumple que la población se conforma por un conjunto de unidades  de muestreo que varían mucho en tamaño, las principales variables de interés están relacionadas con el tamaño de las unidades y por último, se tiene suficiente tamaño de muestra para formar los estratos (Cochran, 1976). 
+
+- Ejemplos de unidades de gran tamaño: las empresas de negocios, granjas, clubes, organizaciones y escuelas, además, esta asimetría también se puede observar en ciertas características de los elementos, como el ingreso, activos y otras características financieras.
+
+Row {data-height=200}
+-----------------------------------------------------------------------
+
+###
+
+<center>
+
+**Objetivo**
+
+**Analizar el efecto en las estimaciones muestrales al incluir unidades de muestreo de gran tamaño, con el fin de mostrar el comportamiento al utilizar diferentes diseños muestrales.**
+
+</center>
+
+Generador de Marco
+=======================================================================
+
+Inputs {.sidebar data-width=250}
+-----------------------------------------------------------------------
+
+```{r}
+h3("Configuración de Estratos")
+prettySwitch(
+   inputId = "sel_peq",
+   label = "Pequeño", 
+    status = "success",
+   fill = TRUE
+)
+conditionalPanel(
+  condition = "input.sel_peq == true",
+  numericInput(inputId = "n_peq",
+             label = "Tamaño de Estrato",
+             value = 400,
+             min = 3),
+  numericRangeInput(inputId = "rango_peq",
+                    label = "Rango de Valores",
+                    value = c(10, 30),
+                    separator = "-")
+)
+prettySwitch(
+   inputId = "sel_med",
+   label = "Mediano", 
+    status = "success",
+   fill = TRUE
+)
+conditionalPanel(
+  condition = "input.sel_med == true",
+  numericInput(inputId = "n_med",
+             label = "Tamaño de Estrato",
+             value = 300,
+             min = 3),
+  numericRangeInput(inputId = "rango_med",
+                    label = "Rango de Valores",
+                    value = c(31, 60),
+                    separator = "-")
+)
+prettySwitch(
+   inputId = "sel_grande",
+   label = "Grande", 
+    status = "success",
+   fill = TRUE
+)
+conditionalPanel(
+  condition = "input.sel_grande == true",
+  numericInput(inputId = "n_grande",
+             label = "Tamaño de Estrato",
+             value = 100,
+             min = 3),
+  numericRangeInput(inputId = "rango_grande",
+                    label = "Rango de Valores",
+                    value = c(61, 90),
+                    separator = "-")
+)
+prettySwitch(
+   inputId = "sel_huge",
+   label = "Muy Grande", 
+   status = "success",
+   fill = TRUE
+)
+conditionalPanel(
+  condition = "input.sel_huge == true",
+  numericInput(inputId = "n_huge",
+             label = "Tamaño de Estrato",
+             value = 20,
+             min = 3),
+  numericRangeInput(inputId = "rango_huge",
+                    label = "Rango de Valores",
+                    value = c(1000, 3000),
+                    separator = "-")
+)
+radioGroupButtons(
+   inputId = "viz_mg",
+   label = "Filtro", 
+   choices = c("Todo", "Sin MG", "Solo MG"),
+   status = "primary"
+)
+```
+
+Row {data-height=400}
+-----------------------------------------------------------------------
+
+### Gráfico de Densidad
+
+```{r}
+set.seed(1)
+# Creando Poblacion
+poblacion <- reactive({
+  est_peq <- data.frame(
+    estrato = "1.Pequeño",
+    total = round(runif(input$n_peq, 
+                        min = input$rango_peq[1], 
+                        max = input$rango_peq[2]), 
+                  0)
+  )
+  est_med <- data.frame(
+    estrato = "2.Mediano",
+    total = round(runif(input$n_med, 
+                        min = input$rango_med[1], 
+                        max = input$rango_med[2]), 
+                  0)
+  )
+  est_grande <- data.frame(
+    estrato = "3.Grande",
+    total = round(runif(input$n_grande, 
+                        min = input$rango_grande[1], 
+                        max = input$rango_grande[2]), 
+                  0)
+  )
+  est_huge <- data.frame(
+    estrato = "4.Muy Grande",
+    total = round(runif(input$n_huge, 
+                        min = input$rango_huge[1], 
+                        max = input$rango_huge[2]), 
+                  0)
+  )
+  poblacion <- bind_rows(est_peq, est_med, est_grande, est_huge) %>% 
+      arrange(total)
+  return(poblacion)
+})
+
+renderPlotly({
+  poblacion <- poblacion()
+  if (input$viz_mg == "Solo MG") {
+    poblacion <- poblacion() %>% 
+      filter(
+        grepl("4", estrato)
+      ) %>% 
+      arrange(total)
+  } else if (input$viz_mg == "Sin MG") {
+    poblacion <- poblacion() %>% 
+      filter(
+        !grepl("4", estrato)
+      ) %>% 
+      arrange(total)
+  }
+  g <- ggplot(data = poblacion, aes(x = total, fill = estrato)) +
+    geom_density(alpha = 0.2) +
+    labs(x = "Total", y = "Densidad", fill = "Estrato")+
+    theme_minimal()
+  ggplotly(g)
+})
+```
+
+
+Row {data-height=650 .tabset}
+-----------------------------------------------------------------------
+
+### Tabla Resumen
+
+```{r}
+estadisticos <- reactive({
+  poblacion() %>% 
+    group_by(estrato) %>% 
+    summarise(
+      Nh = n(),
+      Wh = Nh/nrow(poblacion()),
+      Total = sum(total),
+      `Desv.Est.` = sd(total),
+      Minimo = min(total),
+      Q1 = quantile(total,probs = 0.25),
+      Media = mean(total),
+      Q3 = quantile(total,probs = 0.75),
+      Maximo = max(total)
+    )
+})
+
+renderDataTable({
+  datatable(estadisticos(),
+            colnames=c("Estrato", "Nh","Wh","Total","Desv.Est","Mínimo","Q1","Media","Q3","Máximo"),
+            rownames = FALSE,
+            options = list(
+              paging = FALSE,
+              searching = FALSE,
+              fixedColumns = TRUE,
+              autoWidth = TRUE,
+              ordering = TRUE,
+              dom = 't'
+              ),
+            ) %>% 
+    formatRound(columns = c(3, 5, 7, 8, 9), digits = 2)
+}) 
+  
+```
+
+### Datos de la Población
+
+```{r}
+renderDataTable({
+  datatable(poblacion(),
+            rownames = FALSE,
+            colnames=c("Estrato","Total"),
+            extensions = list('Buttons','Scroller'),
+            options = list(
+              paging = FALSE,
+              searching = FALSE,
+              fixedColumns = TRUE,
+              autoWidth = TRUE,
+              ordering = TRUE,
+              scroller = TRUE,
+              deferRender = TRUE,
+              scrollY = 400,
+              dom = 'Bfrtip',
+              buttons = c('copy', 'csv', 'excel')
+            
+            
+            ))
+})
+```
+
+Estimación
+=======================================================================
+
+Inputs {.sidebar data-width=300}
+-----------------------------------------------------------------------
+
+```{r}
+actionBttn(
+   inputId = "rerun",
+   label = "Generar Nueva Muestra",
+   style = "unite", 
+   color = "danger"
+)
+
+numericInput(inputId = "n",
+             label = "Tamaño de Muestra General",
+             value = 120,
+             min = 4)
+# observe({
+#   need(input$n)
+#   if (input$n < 30) {
+#     showNotification("Tamaño de muestra muy pequeño. Debe ser mayor a 30.",
+#                      type = "error")
+#     updateNumericInput(inputId = "n",
+#                        label = "Tamaño de Muestra General",
+#                        value = 120)
+#   }
+# })
+
+numericInput(inputId = "iteraciones",
+             label = "Número de Iteraciones",
+             value = 1,
+             min = 1)
+
+# observe({
+#   if (input$iteraciones < 1) {
+#     showNotification("El número de iteraciones debe ser positivo.",
+#                      type = "error")
+#     updateNumericInput(session, "iteraciones",
+#                        label = "Número de Iteraciones",
+#                        value = 1)
+#   }
+# })
+
+radioGroupButtons(
+   inputId = "prop_opt",
+   label = "Tipo", 
+   choices = c("Proporcional", "Óptima"),
+   status = "primary"
+)
+
+materialSwitch(inputId = "unique_iter",
+               label = "Ver iteración única", 
+               value = TRUE,
+               status = "success"
+)
+
+conditionalPanel(
+  condition = "input.unique_iter == true",
+  renderUI({
+    pickerInput(
+     inputId = "iteracion_viz",
+     label = "Visualizar Iteración", 
+      choices = 1:input$iteraciones,
+     options = list(
+        style = "btn-primary")
+    )
+  })
+)
+
+conditionalPanel(
+  condition = "input.unique_iter == false",
+  materialSwitch(inputId = "boxplot",
+                 label = "Ver distribución de iteraciones", 
+                 value = FALSE,
+                 status = "success"
+  ),
+  
+  conditionalPanel(
+    condition = "input.boxplot == true",
+    materialSwitch(inputId = "jitter",
+                 label = "Agregar Puntos", 
+                 value = FALSE,
+                 status = "success"
+    )
+  )
+)
+```
+
+Row {data-height=400}
+-----------------------------------------------------------------------
+
+### Estimación del Total
+
+```{r}
+muestra_asignada <- reactive({
+  estadisticos <- estadisticos()
+  
+  # Calculo de muestra optima y proporcional con estrato muy grande muestreado
+  nh_mg_muestra <- estadisticos %>% 
+    mutate(
+      nh_prop = stratasamp(n = input$n, 
+                           Nh= estadisticos$Nh, 
+                           type ="prop")[2,],
+      nh_opt = stratasamp(n = input$n, 
+                          Nh = estadisticos$Nh, 
+                          Sh = estadisticos$`Desv.Est.`,
+                          type ="opt")[2,]
+    )
+
+  nh_mg_opt <- nh_mg_muestra$nh_opt[grep("4", nh_mg_muestra$estrato)]
+  if (nh_mg_opt == 1) {
+    nh_mg_muestra$nh_opt[grep("4", nh_mg_muestra$estrato)] <- 2
+  }
+  
+  nh_mg_prop <- nh_mg_muestra$nh_prop[grep("4", nh_mg_muestra$estrato)]
+  if (nh_mg_prop == 1) {
+    nh_mg_muestra$nh_prop[grep("4", nh_mg_muestra$estrato)] <- 2
+  }
+  
+  # Calculo de muestra optima y proporcional con estrato muy grande censado
+  nh_mg_censado <- estadisticos %>% 
+    filter(
+      !grepl("4", estrato)
+    ) %>% 
+    mutate(
+      nh_prop = stratasamp(n = input$n, 
+                           Nh= Nh,
+                           type ="prop")[2,],
+      nh_opt = stratasamp(n = input$n, 
+                          Nh= Nh,
+                          Sh= `Desv.Est.`,
+                          type ="opt")[2,],
+    )
+
+  return(list(mg_muestreado = nh_mg_muestra,
+              mg_censado = nh_mg_censado))
+})
+
+muestras <- reactive({
+  input$rerun
+  if (input$prop_opt == "Óptima") {
+    muestra_asignada <- muestra_asignada()$mg_muestreado %>% 
+      select(-nh_prop) %>% 
+      rename(nh = nh_opt)
+    tamano_mg_muestra <- muestra_asignada$nh[grep("4", muestra_asignada$estrato)]
+    tamano_mg_poblacion <- estadisticos()$Nh[grep("4", estadisticos()$estrato)]
+    if (tamano_mg_muestra >= tamano_mg_poblacion) {
+      showNotification("El tamaño de muestra óptimo es superior al tamaño del estrato poblacional. Cambiando a proporcional.", type = "error")
+      muestra_asignada <- muestra_asignada()$mg_muestreado %>% 
+        select(-nh_opt) %>% 
+        rename(nh = nh_prop)
+      updateRadioGroupButtons(
+            session,
+            inputId = "prop_opt",
+            label = "Tipo", 
+            choices = c("Proporcional", "Óptima"),
+            status = "primary"
+      )
+    }
+    censada_asignada <- muestra_asignada()$mg_censado %>% 
+      select(-nh_prop) %>% 
+      rename(nh = nh_opt)
+  } else if (input$prop_opt == "Proporcional") {
+    muestra_asignada <- muestra_asignada()$mg_muestreado %>% 
+      select(-nh_opt) %>% 
+      rename(nh = nh_prop)
+    censada_asignada <- muestra_asignada()$mg_censado %>% 
+      select(-nh_opt) %>% 
+      rename(nh = nh_prop)
+  }
+  
+  poblacion <- poblacion() %>% 
+    mutate(
+      estrato_num = case_when(
+        grepl("4", estrato) ~ 4,
+        grepl("3", estrato) ~ 3,
+        grepl("2", estrato) ~ 2,
+        grepl("1", estrato) ~ 1
+      )
+    )
+  
+  iteraciones_muestras <- map(1:input$iteraciones, function(iteración){
+    
+    # Generando muestra MIA
+    complete <- 0
+    mia_con_mg <- NULL
+    mia_sin_mg <- NULL
+    while (complete < 2) {
+      mia = sample(1:nrow(poblacion),
+                   size=input$n,
+                   replace = FALSE)
+      muestra_mia <- poblacion[mia, ] %>% 
+        mutate(
+          F_exp = nrow(poblacion)/input$n
+        )
+      if (any(muestra_mia$total >= input$rango_huge[1]) & is.null(mia_con_mg)) {
+        complete <- complete + 1
+        mia_con_mg <- muestra_mia
+      } else if (all(muestra_mia$total < input$rango_huge[1]) & is.null(mia_sin_mg)) {
+        complete <- complete + 1
+        mia_sin_mg <- muestra_mia
+      }
+    }
+    
+    # Generando muestra estratificada
+    marco_sin_mg <- poblacion %>% 
+      filter(estrato != '4.Muy Grande')
+  
+    marco_mg = anti_join(poblacion, marco_sin_mg)
+  
+    n_cod_sin_mg = sampling:::strata(
+      data = marco_sin_mg,
+      stratanames = "estrato", 
+      size = censada_asignada$nh, 
+      method="srswor")
+  
+    n_cod_total = sampling:::strata(
+      data = poblacion,
+      stratanames = "estrato", 
+      size = muestra_asignada$nh, 
+      method="srswor")
+    
+    muestra_total <-  getdata(poblacion, n_cod_total)
+    muestra_censo <-  bind_rows(getdata(marco_sin_mg, n_cod_sin_mg),
+                                  marco_mg)
+    
+    # Calculando factor de expansión
+    resumen_muestra_total <- muestra_total %>% 
+      group_by(estrato) %>% 
+      summarise(
+        elementos = n()
+      ) %>% 
+      left_join(
+        estadisticos(),
+        by = "estrato"
+      ) %>% 
+      select(estrato, elementos, Nh) %>% 
+      mutate(
+        F_exp = Nh/elementos
+      )
+    
+    # Agregando factor de expansion en muestra
+    muestra_total <- resumen_muestra_total %>%
+      select(estrato, Nh, F_exp) %>% 
+      inner_join(muestra_total, by = "estrato")
+    
+    # Calculando factor de expansión
+    resumen_muestra_censada <- muestra_censo %>% 
+      group_by(estrato) %>% 
+      summarise(
+        elementos = n()
+      ) %>% 
+      left_join(
+        estadisticos(),
+        by = "estrato"
+      ) %>% 
+      select(estrato, elementos, Nh) %>% 
+      mutate(
+        F_exp = Nh/elementos
+      )
+  
+    # Agregando factor de expansion en muestra
+    muestra_censo <- resumen_muestra_censada %>%
+      select(estrato, Nh, F_exp) %>% 
+      inner_join(muestra_censo, by = "estrato")
+    
+    return(list(mia_con_mg = mia_con_mg,
+                mia_sin_mg = mia_sin_mg,
+                muestra_total = muestra_total, 
+                muestra_censo = muestra_censo,
+                resumen_muestra_total = resumen_muestra_total,
+                resumen_muestra_censada = resumen_muestra_censada))
+  })
+  return(iteraciones_muestras)
+})
+
+resultados <- reactive({
+  resultados_iteraciones <- map(muestras(), function(iteracion){
+    mia_con_mg <- iteracion$mia_con_mg
+    mia_sin_mg <- iteracion$mia_sin_mg
+    muestra_total <- iteracion$muestra_total
+    muestra_censo <- iteracion$muestra_censo %>% 
+      filter(
+        grepl("1|2|3", estrato)
+      )
+    estrato_grande <- iteracion$muestra_censo %>% 
+      filter(
+        grepl("4", estrato)
+      )
+    # Generando diseños
+    lista_disenos <- list()
+    lista_disenos$diseno_estrat_muestra <- svydesign(id = ~1,
+                                                     data = muestra_total,
+                                                     strata = ~estrato,
+                                                     weights = ~F_exp,
+                                                     fpc = ~Nh)
+    lista_disenos$diseno_mia_mg <- svydesign(id = ~1,
+                                             data = mia_con_mg,
+                                             strata = NULL,
+                                             weights = ~F_exp,
+                                             fpc = NULL)
+    lista_disenos$diseno_estrat_censo <- svydesign(id = ~1,
+                                                    data = muestra_censo,
+                                                    strata = ~estrato,
+                                                    weights = ~F_exp,
+                                                    fpc = ~Nh)
+    lista_disenos$diseno_mia_sin_mg <- svydesign(id = ~1,
+                                                 data = mia_sin_mg,
+                                                 strata = NULL,
+                                                 weights = ~F_exp,
+                                                 fpc = NULL)
+    # Generando Estimadores
+    resultados_estimaciones <- map(lista_disenos, function(diseno) {
+      estimacion_total <- svytotal(~total, diseno, deff = T)
+      estimacion_total_df <- data.frame(estimacion_total)
+      colnames(estimacion_total_df) <- c("total", "ee", "ed")
+      estimacion_total_df$cv <- as.numeric(cv(estimacion_total))
+      ci_df <- as.numeric(confint(estimacion_total))
+      estimacion_total_df$CI_LO <- ci_df[1]
+      estimacion_total_df$CI_UP <- ci_df[2]
+      row.names(estimacion_total_df) <- NULL
+      return(estimacion_total_df)
+    })
+    # Creacion de tabla de resultados
+    res_df <- bind_rows(resultados_estimaciones, .id = "Diseno")
+
+    # Calcular total del estrato grande
+    total_estrato_grande <- sum(estrato_grande$total)
+    
+    # Creado tabla de censo agregando total de estrato muy grande
+    res_con_censo <- res_df %>% 
+      filter(
+        grepl("censo", Diseno)
+      ) %>% 
+      mutate(
+        total = total + total_estrato_grande,
+        Diseno = paste0(Diseno, "_con_total"),
+        CI_LO = CI_LO + total_estrato_grande,
+        CI_UP = CI_UP + total_estrato_grande
+      )
+    
+    # Agregando resultados de estrato grande a tabla de resultados
+    res_df_full <- bind_rows(res_df, res_con_censo)
+    
+    # Modificando nombre de diseños
+    res_df_full <- res_df_full %>% 
+      filter(
+        Diseno != "diseno_estrat_censo"
+      ) %>% 
+      mutate(
+        Diseno = case_when(
+          Diseno == "diseno_estrat_muestra" ~ "Est. - MG Muestreado",
+          Diseno == "diseno_mia_mg" ~ "MIA - Con MG",
+          Diseno == "diseno_mia_sin_mg" ~ "MIA - Sin MG",
+          Diseno == "diseno_estrat_censo_con_total" ~ "Est. - MG Censado",
+        ),
+        Diseno = factor(Diseno, levels = c("MIA - Con MG",
+                                           "MIA - Sin MG",
+                                           "Est. - MG Muestreado",
+                                           "Est. - MG Censado"))
+      )
+    return(res_df_full)
+  })
+  return(bind_rows(resultados_iteraciones, .id = "iteracion"))
+})
+
+renderPlotly({
+  resultados <- resultados()
+  if (input$boxplot) {
+    g <- ggplot(data = resultados, aes(x = Diseno, y = total, fill = Diseno)) +
+      geom_boxplot(width = 0.2) +
+      labs(x = "Diseño", y = "Estimación del Total") +
+      geom_hline(yintercept=sum(poblacion()$total), linetype="dashed", color = "darkred", size=1.5,
+                 alpha = 0.4) +
+      theme_minimal()+
+      theme(legend.position = "none") +
+      theme(axis.text.x = element_text(angle = 45, h = 1)) +
+      scale_fill_brewer(palette = "Dark2") 
+    if(input$jitter) {
+      g <- g + geom_jitter()
+    }
+  } else {
+    if (input$unique_iter & !is.null(input$iteracion_viz)) {
+      resultados <- resultados %>% 
+        filter(
+          iteracion == as.numeric(input$iteracion_viz)
+        )
+    } else {
+      if (input$iteraciones > 1 & input$iteraciones < 5) {
+        resultados <- resultados %>% 
+          group_by(Diseno) %>% 
+          summarise(
+            CI_LO = mean(CI_LO),
+            CI_UP = mean(CI_UP),
+            total = mean(total)
+          )
+      } else if (input$iteraciones >= 5) {
+        resultados <- resultados %>% 
+          group_by(Diseno) %>% 
+          summarise(
+            CI_LO = quantile(total, probs = 0.025),
+            CI_UP = quantile(total, probs = 0.975),
+            total = mean(total)
+          )
+      }
+    }
+    
+    g <- ggplot(data = resultados, aes(x = Diseno, y = total, fill = Diseno, col = Diseno)) +
+      geom_point(aes(y=total) ) +
+      geom_errorbar(aes(ymin = CI_LO, ymax = CI_UP), width = 0.2) +
+      labs(x = "Diseño", y = "Estimación del Total") +
+      geom_hline(yintercept=sum(poblacion()$total), linetype="dashed", color = "darkred", size=0.75,alpha=0.4) +
+      theme_minimal()+
+      theme(legend.position = "none") +
+      theme(axis.text.x = element_text(angle = 45, h = 1)) +
+      scale_fill_brewer(palette = "Dark2") +
+      scale_colour_brewer(palette = "Dark2") 
+  }
+  ggplotly(g)
+})
+```
+
+### Medidas de Variabilidad `r renderUI(pickerInput(inputId = "var_graph", 
+   label = NULL, 
+   choices = c("Diferencias EE" = "diff_ee", 
+               "Error Estándar (EE)" = "ee", 
+               "Efecto del Diseño" = "ed", 
+               "Coeficiente de Variación" = "cv"),
+   width = '300px',
+   options = list(
+      style = "btn-primary")
+))`
+
+```{r}
+resultados_cond <- reactive({
+  validate(need(!is.null(input$iteracion_viz), "Se necesita iteracion_viz input"))
+  resultados_cond <- resultados() %>% 
+    group_by(iteracion) %>% 
+    mutate(
+      ed = ifelse(grepl("MIA", Diseno), NA, ed),
+      ee_MIA = ee[grep("MIA.*Con", Diseno)],
+      ee_diff = ee - ee_MIA,
+      ee_porc = ((ee - ee_MIA)/ee_MIA)*100
+    )
+  
+  if (!input$boxplot) {
+    if (input$unique_iter) {
+      resultados_cond <- resultados_cond %>% 
+        filter(
+            iteracion == as.numeric(input$iteracion_viz)
+          )
+    } else {
+      if (input$iteraciones < 5) {
+        resultados_cond <- resultados_cond %>% 
+          group_by(Diseno) %>% 
+          summarise(
+            ee = mean(ee),
+            ed = mean(ed),
+            cv = mean(cv),
+            ee_diff = mean(ee_diff),
+            ee_porc = mean(ee_porc)
+          ) 
+      } else {
+        resultados_cond <- resultados_cond %>% 
+          group_by(Diseno) %>% 
+          summarise(
+            ci_ee_lo = quantile(ee, probs = 0.025),
+            ci_ee_up = quantile(ee, probs = 0.975),
+            ee = mean(ee),
+            ci_ed_lo = quantile(ed, probs = 0.025, na.rm = T),
+            ci_ed_up = quantile(ed, probs = 0.975, na.rm = T),
+            ed = mean(ed),
+            ci_cv_lo = quantile(cv, probs = 0.025),
+            ci_cv_up = quantile(cv, probs = 0.975),
+            cv = mean(cv),
+            ci_ee_diff_lo = quantile(ee_diff, probs = 0.025),
+            ci_ee_diff_up = quantile(ee_diff, probs = 0.975),
+            ee_diff = mean(ee_diff),
+            ci_ee_porc_lo = quantile(ee_porc, probs = 0.025),
+            ci_ee_porc_up = quantile(ee_porc, probs = 0.975),
+            ee_porc = mean(ee_porc)
+          ) 
+      }
+    }
+  }
+  return(resultados_cond)
+})
+
+renderPlotly({
+  validate(need(!is.null(input$var_graph), "Se necesita var graph"))
+  validate(need(!is.null(resultados_cond()), "Se necesita tabla de resultados"))
+  
+  if (input$var_graph == "diff_ee") {
+    resultados_largo <- resultados_cond() %>% 
+      select(Diseno, contains("diff"), contains("porc")) %>% 
+      pivot_longer(
+        cols = c(contains("diff"), contains("porc")),
+        names_to = "variable",
+        values_to = "valor"
+      )
+    
+    if (input$iteraciones >= 5) {
+      resultados <- resultados_largo %>% 
+        filter(
+          !grepl("ci", variable)
+        )
+      resultado_ci <- resultados_largo %>% 
+        mutate(
+          intervalo = case_when(
+            str_detect(variable, "lo") ~ "ci_lo",
+            str_detect(variable, "up") ~ "ci_up",
+            TRUE ~ "valor"
+          ),
+          variable = str_remove_all(variable, "ci_|_lo|_up")
+        ) %>% 
+        pivot_wider(
+          id_cols = c("Diseno", "variable"), 
+          names_from = "intervalo",
+          values_from = "valor"
+        )
+    } else {
+      resultados <- resultados_largo
+    }
+    
+    if (input$iteraciones == 1 | input$unique_iter) {
+      label_diff <- "Diferencia Absoluta EE"
+      label_porc <- "Diferencia Porcentual EE"
+    } else {
+      label_diff <- "Promedio de Diferencia Absoluta EE"
+      label_porc <- "Promedio de Diferencia Porcentual EE"
+    }
+    
+    g <- ggplot(data = resultados, aes(x = Diseno, y = valor, fill = Diseno)) +
+      theme_minimal()+
+      theme(legend.position = "none") +
+      theme(axis.text.x = element_text(angle = 45, h = 1)) +
+      scale_fill_brewer(palette = "Dark2") +
+      scale_colour_brewer(palette = "Dark2")  +
+      facet_wrap(~variable, 
+                 scales = "free_y", 
+                 strip.position = "left", 
+                 labeller = as_labeller(c(ee_diff = label_diff, 
+                                          ee_porc = label_porc))) +
+      xlab("Diseño") +
+      ylab(NULL) +
+      theme(strip.background = element_blank(),
+            strip.placement = "outside")
+    
+    if (input$boxplot) {
+      g <- g + geom_boxplot(width = 0.2) 
+      if(input$jitter) {
+          g <- g + geom_jitter()
+      }
+    } else {
+      if (input$iteraciones < 5 | input$unique_iter) {
+        g <- g + geom_bar(stat = "identity")
+      } else {
+        g <- g + geom_point() +
+                 geom_errorbar(data = resultado_ci, 
+                               aes(x = Diseno,
+                                   ymin = ci_lo, 
+                                   ymax = ci_up,
+                                   col = Diseno),
+                        width = 0.2)
+      }
+    }
+  } else {
+    etiqueta_var <- case_when(
+      input$var_graph == "ee" ~ "Error Estándar",
+      input$var_graph == "ed" ~ "Efecto del Diseño",
+      input$var_graph == "cv" ~ "Coeficiente de Variación"
+    )
+    
+    if (input$var_graph == "ed") {
+      resultados <- resultados_cond() %>% 
+        filter(
+          !grepl("MIA", Diseno)
+        )
+    } else {
+      resultados <- resultados_cond()
+    }
+    
+    g <- ggplot(data = resultados, aes(x = Diseno, fill = Diseno)) +
+      theme_minimal()+
+      theme(legend.position = "none") +
+      theme(axis.text.x = element_text(angle = 45, h = 1)) +
+      scale_fill_brewer(palette = "Dark2") +
+      scale_colour_brewer(palette = "Dark2") +
+      xlab("Diseño")
+    
+    if (input$boxplot) {
+      g <- g + geom_boxplot(aes_string(y = input$var_graph), width = 0.2) +
+        ylab(etiqueta_var)
+      if(input$jitter) {
+          g <- g + geom_jitter(aes_string(y = input$var_graph)) 
+      }
+    } else {
+      if (input$iteraciones < 5  | input$unique_iter) {
+        g <- g + geom_bar(aes_string(y = input$var_graph), stat = "identity")
+        if (input$iteraciones == 1 | input$unique_iter) {
+          g <- g + ylab(etiqueta_var)
+        } else {
+          g <- g + ylab(paste("Promedio de", etiqueta_var))
+        }
+      } else {
+        g <- g + geom_point(aes_string(y = input$var_graph, col = "Diseno")) +
+          geom_errorbar(aes_string(ymin = paste0("ci_", input$var_graph, "_lo"), 
+                                   ymax = paste0("ci_", input$var_graph, "_up"),
+                                   col = "Diseno"),
+                        width = 0.2) + 
+          ylab(paste("Promedio de", etiqueta_var))
+      }
+    }
+  }
+  
+  ggplotly(g)
+})
+```
+
+Row 
+-----------------------------------------------------------------------
+
+### Tabla
+
+```{r}
+renderDataTable({
+  if (input$boxplot) {
+    resultados <- resultados_cond() %>% 
+      select(-c(ee_MIA)) %>% 
+      relocate(starts_with("CI"), .after = total)%>% 
+      arrange(iteracion, Diseno)
+    
+    nombres <- c("Iteracion","Diseño","Total", "Lim.Inf","Lim.Sup",
+                   "Error Estandar","Efecto Diseño",
+                   "Coeficiente Variación",
+                   "Diferencia Absoluta EE", "Diferencia Porc. EE")
+    round_cols <- 3:10
+  } else {
+    resultados <- resultados_cond() %>% 
+      arrange(Diseno)
+  
+    if (input$iteraciones == 1 | input$unique_iter) {
+      if(input$unique_iter) {
+        resultados <- resultados %>%
+          select(-c(ee_MIA)) %>% 
+          relocate(starts_with("CI"), .after = total)
+      } else {
+        resultados_var <- resultados
+        resultados <- resultados() %>% 
+          relocate(starts_with("CI"), .after = total)%>% 
+          arrange(Diseno)
+        
+        resultados <- resultados %>% 
+          select(-c(ee, ed, cv)) %>% 
+          inner_join(resultados_var, by = "Diseno") %>% 
+          relocate(starts_with("CI"), .after = total)
+      }
+      
+      nombres <- c("Iteracion","Diseño","Total", "Lim.Inf","Lim.Sup",
+                   "Error Estandar","Efecto Diseño",
+                   "Coeficiente Variación",
+                   "Diferencia Absoluta EE", "Diferencia Porc. EE")
+      round_cols <- 3:10
+    } else if (input$iteraciones < 5) {
+      resultados_var <- resultados
+      
+      resultados <- resultados() %>% 
+            group_by(Diseno) %>% 
+            summarise(
+              CI_LO = mean(CI_LO),
+              CI_UP = mean(CI_UP),
+              total = mean(total)
+            )
+      
+      resultados <- resultados %>% 
+        inner_join(resultados_var, by = "Diseno") %>% 
+        relocate(starts_with("CI"), .after = total)
+      
+      nombres <- c("Diseño","Total", "Lim.Inf","Lim.Sup",
+                   "Error Estandar","Efecto Diseño",
+                   "Coeficiente Variación",
+                   "Diferencia Absoluta EE", "Diferencia Porc. EE")
+      
+      round_cols <- 2:9
+    } else {
+      resultados_var <- resultados
+      
+      resultados <- resultados() %>% 
+            group_by(Diseno) %>% 
+            summarise(
+              CI_LO = quantile(total, probs = 0.025),
+              CI_UP = quantile(total, probs = 0.975),
+              total = mean(total)
+            )
+      
+      resultados <- resultados %>% 
+        inner_join(resultados_var, by = "Diseno") %>% 
+        relocate("CI_LO", "CI_UP", .after = total) %>% 
+        relocate("ci_ee_lo", "ci_ee_up", .after = ee) %>%
+        relocate("ci_ed_lo", "ci_ed_up", .after = ed) %>%
+        relocate("ci_cv_lo", "ci_cv_up", .after = cv) %>%
+        relocate("ci_ee_diff_lo", "ci_ee_diff_up", .after = ee_diff) %>%
+        relocate("ci_ee_porc_lo", "ci_ee_porc_up", .after = ee_porc) 
+      print(resultados)
+      print(colnames(resultados))
+      nombres <- c("Diseño","Total", "Lim.Inf","Lim.Sup",
+                   "Error Estandar", "Lim.Inf.EE","Lim.Sup.EE",
+                   "Efecto Diseño", "Lim.Inf.ED","Lim.Sup.ED",
+                   "Coeficiente Variación", "Lim.Inf.CV","Lim.Sup.CV",
+                   "Diferencia Absoluta EE", "Lim.Inf.Dif.EE","Lim.Sup.Dif.EE",
+                   "Diferencia Porc. EE", "Lim.Inf.Dif.EE (%)","Lim.Sup.Dif.EE (%)")
+      round_cols <- 2:19
+    }
+  }
+  
+  datatable(resultados,
+            rownames=FALSE,
+            colnames=nombres,#A esto hay que agregarlo las restas
+            extensions = 'Scroller',
+            options = list(
+              paging = TRUE,
+              searching = FALSE,
+              fixedColumns = TRUE,
+              autoWidth = TRUE,
+              ordering = TRUE,
+              scroller = TRUE,
+              deferRender = TRUE,
+              scrollY = 300,
+              scrollX = TRUE,
+              dom = 't')
+            ) %>% 
+    formatRound(columns = round_cols, digits = 2)
+})
+```
+
+Row {data-height=300 .tabset}
+-----------------------------------------------------------------------
+
+### Tamaños de Muestra - Estrato Muy Grande Muestreado
+
+```{r}
+renderDataTable({
+  datatable(muestra_asignada()$mg_muestreado,
+            rownames=FALSE,
+            colnames=c("Estrato","Nh","Wh","Total","Desviación Estandar","Mínimo"," Q1","Media","Q3","Máximo","Asig. Proporcional","Asig. Optima" ),
+            options = list(
+              dom = 't')) %>% 
+    formatRound(columns = c(3,5,8), digits = 2)
+})
+
+```
+
+### Tamaños de Muestra - Estrato Muy Grande Censado
+
+```{r}
+renderDataTable({
+  datatable(muestra_asignada()$mg_censado,
+            rownames=FALSE,
+            colnames=c("Estrato","Nh","Wh","Total","Desviación Estandar","Mínimo"," Q1","Media","Q3","Máximo","Asig. Proporcional","Asig. Optima" ),
+            options = list(
+              dom = 't'))  %>% 
+    formatRound(columns = c(3,5,8), digits = 2)
+})
+```
+
+### Muestra Asignada - Muestreo
+
+```{r}
+renderDataTable({
+  resumen_muestra_total <- map(muestras(), function(iteracion){
+    return(iteracion$resumen_muestra_total)
+  })
+  bind_rows(resumen_muestra_total, .id = "iteracion") %>% 
+    mutate(
+      F_exp = round(F_exp, 2)
+    )
+}, colnames=c("Iteración","Estrato","Elementos","Nh","Factor Expansión"),
+  rownames=FALSE,
+  extensions = 'Scroller',
+            options = list(
+              paging = TRUE,
+              searching = FALSE,
+              fixedColumns = TRUE,
+              autoWidth = TRUE,
+              ordering = TRUE,
+              scroller = TRUE,
+              deferRender = TRUE,
+              scrollY = 300,
+              dom = 't')
+)
+```
+
+### Muestra Asignada - Autorepresentada
+
+```{r}
+renderDataTable({
+  resumen_muestra_censada <- map(muestras(), function(iteracion){
+    return(iteracion$resumen_muestra_censada)
+  })
+  bind_rows(resumen_muestra_censada, .id = "iteracion") %>% 
+    mutate(
+      F_exp = round(F_exp, 2)
+    )
+},  rownames=FALSE,
+  colnames=c("Iteración","Estrato","Elementos","Nh","Factor Expansión"),
+  extensions = 'Scroller',
+            options = list(
+              paging = TRUE,
+              searching = FALSE,
+              fixedColumns = TRUE,
+              autoWidth = TRUE,
+              ordering = TRUE,
+              scroller = TRUE,
+              deferRender = TRUE,
+              scrollY = 300,
+              dom = 't')
+)
+```
+
+Conclusiones
+=======================================================================
+
+Row {data-width=250}
+----------------------------------------------------------
+
+### Conclusiones
+
+- En general, al observar los resultados obtenidos con solo una iteración o con varias, los valores estimados siguen un mismo patrón en el comportamiento. 
+
+- Del estudio de simulación para la estimación del total, se destaca que ya sea con una única iteración o más de una, el diseño estratificado donde se censan las unidades muy grandes fue el más preciso; tanto el valor estimado es el más cercano al poblacional, así como el intervalo de confianza es el más estrecho. 
+
+
+- Por su parte, el efecto del diseño de los muestreos estratificados indica que la variabilidad del estimador fue menor que la variabilidad del estimador de un MIA con igual tamaño de muestra. 
+
+- Otra medida de variabilidad estimada y que también favoreció al diseño estratificado con MG censado fue el coeficiente de variación, siendo el menor en todos los casos estudiados.  
+
+
+- Este estudio evidencia el efecto que producen estas unidades muy grandes sobre algunas estimaciones como lo son el total y medidas de variabilidad.
+
+- cabe rescatar que el no incluir las unidades muy grandes llevando a cabo un MIA de elementos reduce la variabilidad, pero la estimación total está sesgada ya que este intervalo no contiene al valor poblacional.
+
+
+
