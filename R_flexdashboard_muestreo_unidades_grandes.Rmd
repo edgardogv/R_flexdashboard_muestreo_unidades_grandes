@@ -248,18 +248,18 @@ renderDataTable({
   datatable(poblacion(),
             rownames = FALSE,
             colnames=c("Estrato","Total"),
-            extensions = list('Buttons','Scroller'),
+            extensions = 'Buttons',
             options = list(
-              paging = FALSE,
+              paging = TRUE,
               searching = FALSE,
               fixedColumns = TRUE,
               autoWidth = TRUE,
               ordering = TRUE,
+              dom = 'Bfrtip',
+              buttons = c('copy', 'csv', 'excel'),
               scroller = TRUE,
               deferRender = TRUE,
-              scrollY = 400,
-              dom = 'Bfrtip',
-              buttons = c('copy', 'csv', 'excel')
+              scrollY = 400
             
             
             ))
